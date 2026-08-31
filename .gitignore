@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables — NEVER commit secrets
+.env
+.env.local
+.env.*.local
+apps/api/.env
+apps/web/.env.local
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Turborepo
+.turbo/
+
+# Prisma
+apps/api/generated/
+
+# Legacy — local disk avatar storage, replaced by Cloudinary, safe to ignore/delete
+apps/api/uploads/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Testing
+coverage/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Sentry
+.sentryclirc
+
+# PWA generated (if any)
+apps/web/public/sw.js.map
+
+# Misc
+*.pem
+.vercel

@@ -1,0 +1,634 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  SELLER
+  ADMIN
+  PROVIDER
+}
+
+enum StoreStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum OrderStatus {
+  PLACED
+  CANCELLED
+}
+
+enum TrackingStatus {
+  CONFIRMED
+  PACKED
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+}
+
+enum CommissionStatus {
+  OWED
+  SETTLED
+}
+
+enum DisputeStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum NotificationType {
+  NEW_ORDER
+  LOW_STOCK
+  DISPUTE_UPDATE
+  JOB_APPLICATION
+  JOB_STATUS_UPDATE
+  BACK_IN_STOCK
+}
+
+enum WorkflowKey {
+  NEW_ORDER_EMAIL
+  NEW_ORDER_INVENTORY
+  LOW_STOCK_NOTIFY
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ServiceJobStatus {
+  OPEN
+  ASSIGNED
+  COMPLETED
+  CANCELLED
+}
+
+enum JobApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum GigStatus {
+  ACTIVE
+  PAUSED
+}
+
+enum ServiceCommissionStatus {
+  OWED
+  SETTLED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+}
+
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  phone            String?   @unique
+  city             String?
+  country          String?
+  passwordHash     String
+  name             String
+  role             Role      @default(CUSTOMER)
+  avatar           String?
+  trustCoins       Int       @default(0)
+    notificationPreferences Json @default("{}")
+  emailVerified    Boolean   @default(false)
+  otpCode          String?
+  otpExpiresAt     DateTime?
+  resetPasswordCode      String?
+  resetPasswordExpiresAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  addresses       Address[]
+  stores          Store[]
+  wishlist        Wishlist[]
+  cart            Cart?
+  orders          Order[]
+  reviews         Review[]
+  storeFollows    StoreFollow[]
+  disputesRaised  Dispute[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model Address {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String
+  line1     String
+  city      String
+  country   String
+  isDefault Boolean @default(false)
+
+  orders Order[]
+
+  @@map("addresses")
+}
+
+model Store {
+  id          String      @id @default(cuid())
+  sellerId    String
+  seller      User        @relation(fields: [sellerId], references: [id])
+  name        String
+  slug        String      @unique
+  logo        String?
+  banner      String?
+  category    String?
+  description String?
+  city        String?
+  country     String?
+  latitude    Float?
+  longitude   Float?
+  rating      Float       @default(0)
+  status      StoreStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+
+  listings    StoreListing[]
+  subOrders   SubOrder[]
+  commissions Commission[]
+  followers   StoreFollow[]
+
+  @@map("stores")
+}
+
+model Category {
+  id       String     @id @default(cuid())
+  name     String
+  slug     String     @unique
+  icon     String?
+  parentId String?
+  parent   Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryToCategory")
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id            String   @id @default(cuid())
+  categoryId    String
+  category      Category @relation(fields: [categoryId], references: [id])
+  title         String
+  brand         String?
+  images        String[]
+  canonicalSlug String   @unique
+  createdAt     DateTime @default(now())
+
+  listings StoreListing[]
+
+  @@map("products")
+}
+
+model StoreListing {
+  id             String   @id @default(cuid())
+  storeId        String
+  store          Store    @relation(fields: [storeId], references: [id])
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id])
+  price          Decimal  @db.Decimal(10, 2)
+  compareAtPrice Decimal? @db.Decimal(10, 2)
+  stock          Int      @default(0)
+  isBestDeal     Boolean  @default(false)
+  freeDelivery   Boolean  @default(true)
+  rating         Float    @default(0)
+  reviewCount    Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  wishlistedBy Wishlist[]
+  cartItems    CartItem[]
+  orderItems   OrderItem[]
+  reviews      Review[]
+
+  @@map("store_listings")
+}
+
+model Wishlist {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeListingId String
+  storeListing   StoreListing @relation(fields: [storeListingId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, storeListingId])
+  @@map("wishlist")
+}
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  updatedAt DateTime   @updatedAt
+    reminderSentAt DateTime?
+
+  @@map("carts")
+}
+
+model CartItem {
+  id             String       @id @default(cuid())
+  cartId         String
+  cart           Cart         @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  storeListingId String
+  storeListing   StoreListing @relation(fields: [storeListingId], references: [id])
+  qty            Int          @default(1)
+
+  @@unique([cartId, storeListingId])
+  @@map("cart_items")
+}
+
+model Order {
+  id               String      @id @default(cuid())
+  userId           String
+  user             User        @relation(fields: [userId], references: [id])
+  addressId        String
+  address          Address     @relation(fields: [addressId], references: [id])
+  subtotal         Decimal     @db.Decimal(10, 2)
+  shipping         Decimal     @db.Decimal(10, 2) @default(0)
+  tax              Decimal     @db.Decimal(10, 2) @default(0)
+  total            Decimal     @db.Decimal(10, 2)
+  paymentMethod    String      @default("COD")
+  status           OrderStatus @default(PLACED)
+  trustCoinsEarned Int         @default(0)
+    couponCode       String?
+  couponDiscount   Decimal     @db.Decimal(10, 2) @default(0)
+  trustCoinsUsed   Int         @default(0)
+  createdAt        DateTime    @default(now())
+
+  subOrders SubOrder[]
+  disputes  Dispute[]
+
+  @@map("orders")
+}
+
+model SubOrder {
+  id             String         @id @default(cuid())
+  orderId        String
+  order          Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storeId        String
+  store          Store          @relation(fields: [storeId], references: [id])
+  trackingStatus TrackingStatus @default(CONFIRMED)
+  codCollected   Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+
+  items      OrderItem[]
+  commission Commission?
+   returnRequests ReturnRequest[]
+
+  @@map("sub_orders")
+}
+
+model OrderItem {
+  id             String       @id @default(cuid())
+  subOrderId     String
+  subOrder       SubOrder     @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  storeListingId String
+  storeListing   StoreListing @relation(fields: [storeListingId], references: [id])
+  qty            Int
+  price          Decimal      @db.Decimal(10, 2)
+
+  @@map("order_items")
+}
+
+model Commission {
+  id         String           @id @default(cuid())
+  storeId    String
+  store      Store            @relation(fields: [storeId], references: [id])
+  subOrderId String           @unique
+  subOrder   SubOrder         @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  amount     Decimal          @db.Decimal(10, 2)
+  status     CommissionStatus @default(OWED)
+  createdAt  DateTime         @default(now())
+
+  @@map("commissions")
+}
+
+model Review {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeListingId String
+  storeListing   StoreListing @relation(fields: [storeListingId], references: [id], onDelete: Cascade)
+  rating         Int
+  comment        String?
+    images         String[]
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, storeListingId])
+  @@map("reviews")
+}
+
+model StoreFollow {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, storeId])
+  @@map("store_follows")
+}
+
+model Dispute {
+  id             String        @id @default(cuid())
+  orderId        String
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  raisedByUserId String
+  raisedBy       User          @relation(fields: [raisedByUserId], references: [id])
+  reason         String
+  status         DisputeStatus @default(OPEN)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@map("disputes")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model Workflow {
+  id        String      @id @default(cuid())
+  storeId   String
+  key       WorkflowKey
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+
+  @@unique([storeId, key])
+  @@map("workflows")
+}
+
+model StoreVisit {
+  id        String   @id @default(cuid())
+  storeId   String
+  source    String
+  createdAt DateTime @default(now())
+
+  @@index([storeId])
+  @@map("store_visits")
+}
+
+model RiskFlag {
+  id        String    @id @default(cuid())
+  level     RiskLevel
+  reason    String
+  country   String?
+  orderId   String?
+  userId    String?
+  storeId   String?
+  createdAt DateTime  @default(now())
+
+  @@map("risk_flags")
+}
+
+model ServiceCategory {
+  id   String  @id @default(cuid())
+  name String
+  slug String  @unique
+  icon String?
+
+  jobPosts         JobPost[]
+  gigs             Gig[]
+  providerProfiles ProviderProfile[] @relation("ProviderCategories")
+
+  @@map("service_categories")
+}
+
+model ProviderProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  bio         String?
+  skills      String[]
+  tags        String[]
+  city        String?
+  country     String?
+  latitude    Float?
+  longitude   Float?
+  ratingAvg   Float    @default(0)
+  ratingCount Int      @default(0)
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  categories   ServiceCategory[] @relation("ProviderCategories")
+  applications JobApplication[]
+  reviews      ServiceReview[]
+  gigs         Gig[]
+
+  @@map("provider_profiles")
+}
+
+model JobPost {
+  id          String          @id @default(cuid())
+  clientId    String
+  title       String
+  description String
+  categoryId  String
+  category    ServiceCategory @relation(fields: [categoryId], references: [id])
+  city        String
+  country     String
+  latitude    Float?
+  longitude   Float?
+  budget      Decimal?        @db.Decimal(10, 2)
+  status      ServiceJobStatus @default(OPEN)
+  createdAt   DateTime        @default(now())
+
+  applications JobApplication[]
+  reviews      ServiceReview[]
+  chatThreads  ChatThread[]
+
+  @@map("job_posts")
+}
+
+model JobApplication {
+  id         String               @id @default(cuid())
+  jobPostId  String
+  jobPost    JobPost              @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  providerId String
+  provider   ProviderProfile      @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  message    String?
+  status     JobApplicationStatus @default(PENDING)
+  createdAt  DateTime             @default(now())
+
+  @@unique([jobPostId, providerId])
+  @@map("job_applications")
+}
+
+model ServiceReview {
+  id         String   @id @default(cuid())
+  jobPostId  String
+  jobPost    JobPost  @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  clientId   String
+  providerId String
+  provider   ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@unique([jobPostId, providerId])
+  @@map("service_reviews")
+}
+
+model ChatThread {
+  id         String   @id @default(cuid())
+  jobPostId  String?
+  jobPost    JobPost? @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  clientId   String
+  providerId String
+  createdAt  DateTime @default(now())
+
+  messages ChatMessage[]
+
+  @@unique([jobPostId, clientId, providerId])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        String     @id @default(cuid())
+  threadId  String
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId  String
+  content   String
+  createdAt DateTime   @default(now())
+
+  @@map("chat_messages")
+}
+
+model Gig {
+  id           String          @id @default(cuid())
+  providerId   String
+  provider     ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  categoryId   String
+  category     ServiceCategory @relation(fields: [categoryId], references: [id])
+  title        String
+  description  String
+  price        Decimal         @db.Decimal(10, 2)
+  deliveryDays Int
+  images       String[]
+  status       GigStatus       @default(ACTIVE)
+  createdAt    DateTime        @default(now())
+
+  @@map("gigs")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  userAgent String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@map("refresh_tokens")
+}
+
+model ServiceCommission {
+  id         String                   @id @default(cuid())
+  providerId String
+  jobPostId  String                   @unique
+  amount     Decimal                  @db.Decimal(10, 2)
+  status     ServiceCommissionStatus  @default(OWED)
+  createdAt  DateTime                 @default(now())
+
+  @@map("service_commissions")
+}
+
+model AdminAction {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorName  String
+  action     String
+  targetType String
+  targetId   String?
+  createdAt  DateTime @default(now())
+
+  @@map("admin_actions")
+}
+
+model Coupon {
+  id             String     @id @default(cuid())
+  code           String     @unique
+  type           CouponType
+  value          Decimal    @db.Decimal(10, 2)
+  minOrderAmount Decimal?   @db.Decimal(10, 2)
+  maxUses        Int?
+  usedCount      Int        @default(0)
+  expiresAt      DateTime?
+  isActive       Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+
+  redemptions CouponRedemption[]
+
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id        String   @id @default(cuid())
+  couponId  String
+  coupon    Coupon   @relation(fields: [couponId], references: [id])
+  userId    String
+  orderId   String   @unique
+  createdAt DateTime @default(now())
+
+  @@map("coupon_redemptions")
+}
+
+model ReturnRequest {
+  id         String       @id @default(cuid())
+  subOrderId String
+  subOrder   SubOrder     @relation(fields: [subOrderId], references: [id], onDelete: Cascade)
+  userId     String
+  reason     String
+  images     String[]
+  status     ReturnStatus @default(REQUESTED)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@map("return_requests")
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@map("push_subscriptions")
+}
